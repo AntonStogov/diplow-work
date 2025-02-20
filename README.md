@@ -320,11 +320,22 @@ ansible-playbook -i /kuberspray/inventory/mycluster/hosts.yaml -u ubuntu --becom
 
 ![image](https://github.com/user-attachments/assets/c24e8c98-6996-41b4-bebd-0d4ff24c6c9b)
 
-![image](https://github.com/user-attachments/assets/0f9dc056-5fd2-42d2-84c5-c34e4f857d43)
 
 Перед тем как выйти скопируем конфиг на локальную машину чтобы управлять кластером оттуда:
 cat ~/.kube/config
 Далее выходим exit и создаем файл конфига на локальной машине
+
+## Итоги создания кластера
+1. Kubernetes кластер запущен и работает
+2. В файле ~/.kube/config находятся данные для доступа к кластеру.
+   На master ноде:
+   ![image](https://github.com/user-attachments/assets/05a4a3e5-f993-43d0-9dd2-58542880e500)
+
+   На локлаьной машине
+   ![image](https://github.com/user-attachments/assets/01bd7994-66c6-4d40-8771-8f87124e71f8)
+
+3. Команда kubectl get pods --all-namespaces отрабатывает без ошибок.
+   ![image](https://github.com/user-attachments/assets/0f9dc056-5fd2-42d2-84c5-c34e4f857d43)
 
 ---
 
@@ -372,7 +383,115 @@ EXPOSE 80
 
 ![image](https://github.com/user-attachments/assets/69bf8c29-e10d-48dd-8d0e-bcbaf5e96860)
 
+## Итоги по созданию тестового приложения:
+1. Git репозиторий с тестовым приложением и Dockerfile.
+   https://github.com/AntonStogov/test-diplom
+2. Регистри с собранным docker image. В качестве регистри может быть DockerHub или Yandex Container Registry, созданный также с помощью terraform.
+   https://hub.docker.com/repository/docker/fortdragon/test-diplom/general
+
 ---
+
+## Подготовка cистемы мониторинга и деплой приложения
+
+Добавлим репозиторий prometheus-community для установки с помощью helm:
+![image](https://github.com/user-attachments/assets/6953f525-4659-46b1-9b2a-06cd7426dc42)
+
+![image](https://github.com/user-attachments/assets/cfc3266f-51d2-42e5-9dfc-73c2ef157e98)
+Нужно настроить NodePort для работы снаружи, так же задать логин и пароль можно в /helm-prometheus/values.yaml
+![image](https://github.com/user-attachments/assets/a3fc3b8e-957d-4e72-9f89-635a60884da4)
+
+### Задал порт с ошибкой, диапозон портов 30000 - 32767 включительно
+
+![image](https://github.com/user-attachments/assets/39999e0f-79be-402d-bb55-b8b171123d3b)
+
+Задал логин и пароль для успешной авторизации
+
+Выполняю установку с помощью настроеного файла и проверяю поды и сервисы в namespace мониторинг
+
+helm upgrade --install monitoring prometheus-community/kube-prometheus-stack --create-namespace -n monitoring -f helm-prometheus/values.yaml
+
+![image](https://github.com/user-attachments/assets/2a1666db-5e32-4236-ad58-e4b4c0e2dc4f)
+
+Namespace: Monitoring поды и сервисы запущены
+
+Открываю графану в браузере по заданому в values.yaml порту:
+![image](https://github.com/user-attachments/assets/1b6a509f-c2c4-4412-a254-55f65d51415d)
+
+Графана успешно работает, дашбоды показывают состоянию кластера
+![image](https://github.com/user-attachments/assets/1029e796-acaa-4979-98c2-c10437a8d93c)
+
+Мониторинг успешно развернут, дальше нужно развернуть тестовой приложение на кластере:
+Для этого создам отдельный namespase - diplom-site
+
+![image](https://github.com/user-attachments/assets/fa9f03b0-a444-4488-a782-4ad2da2a5cf3)
+
+Для этого напишу манифест deployment
+~~~yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: diplom-app
+  namespace: diplom-site
+  labels:
+    app: web-app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: web-app
+  template:
+    metadata:
+      labels:
+        app: web-app
+    spec:
+      containers:
+      - name: test-diplom
+        image: fortdragon/test-diplom:0.1
+        resources:
+          requests:
+            cpu: "1"
+            memory: "200Mi"
+          limits:
+            cpu: "2"
+            memory: "400Mi"
+        ports:
+        - containerPort: 80
+~~~
+
+Запущу и проверю работу
+![image](https://github.com/user-attachments/assets/ae5d987b-9120-41ae-82ee-9be20ee1e0d0)
+
+со стороны localhost
+![image](https://github.com/user-attachments/assets/74b9ced3-c317-470c-b2cf-daef104bcc79)
+
+Приложение работает можно написать манифест сервиса с типом NodePort для доступа к web-интерфейсу тестового приложения:
+
+~~~yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: diplom-site-service
+  namespace: diplom-site
+spec:
+  type: NodePort
+  selector:
+    app: web-app
+  ports:
+  - protocol: TCP
+    port: 80
+    nodePort: 30051
+~~~
+
+Запускаю kybectl apply -f service.yaml -n diplome-site
+Проверяю работу по 30051 порту
+![image](https://github.com/user-attachments/assets/bf6bc41e-f001-487f-9e85-4721420708f5)
+
+В манифесте Deployments две реплики приложения и для обеспечения его отказоустойчивости, потребуется балансировщик нагрузки. Дописал Terraform для создания балансировщика нагрузки. Создается группа балансировщика нагрузки, которая будет использоваться для балансировки нагрузки между экземплярами. Создается балансировщик с именем grafana с портом 3000,  настраивается проверка работоспособности (healthcheck) на порту 31000. Также создается балансировщик с именем web-app на порту 80, который перенаправляет трафик на порт 31001 целевого узла, настраивается проверка работоспособности (healthcheck) на порту 31001.
+
+
+
+
+
 
 
 
