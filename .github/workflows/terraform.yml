@@ -31,6 +31,7 @@ jobs:
       TOKEN: ${{ secrets.YC_TOKEN }}
       CLOUD_ID: ${{ secrets.YC_CLOUD_ID }}
       FOLDER_ID: ${{ secrets.YC_FOLDER_ID }}
+      ZONE_ID: ${{ secrets.YC_ZONE_ID }}
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_KEY }}
       TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
