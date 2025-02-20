@@ -1,4 +1,4 @@
-# Дипломный практикум в Yandex.Cloud
+ # Дипломный практикум в Yandex.Cloud
 
 ## Цели:
 
@@ -249,6 +249,8 @@ Terraform сконфигурирован и создана инфраструк�
 
 Приступлю к развёртыванию Kubernetes кластера, разворачивать буду из репозитория Kubespray, склонирую репозиторий на свою рабочую машину с github:
 
+![image](https://github.com/user-attachments/assets/4b4031a1-45ad-41e9-b401-52611e284035)
+
 
 При помощи terraform буду применять следующий код:
 ~~~hcl
@@ -295,38 +297,87 @@ all:
 
 При выполнение terraform, hosts.yaml будет выглядеть так в зависимости от ip адресов
 
-~~~yaml
-all:
-  hosts:
-    master:
-      ansible_host: 51.250.14.85
-      ip: 10.0.1.15
-      access_ip: 51.250.14.85
-    worker-1:
-      ansible_host: 158.160.80.6
-      ip: 10.0.2.28
-      access_ip: 158.160.80.6
-    worker-2:
-      ansible_host: 158.160.88.139
-      ip: 10.0.2.18
-      access_ip: 158.160.88.139
-  children:
-    kube_control_plane:
-      hosts:
-        master:
-    kube_node:
-      hosts:
-        worker-1:
-        worker-2:
-    etcd:
-      hosts:
-        master:
-    k8s_cluster:
-      children:
-        kube_control_plane:
-        kube_node:
-    calico_rr:
+![image](https://github.com/user-attachments/assets/6c7baf65-4e24-40f0-bc7d-ee9884cc2283)
+
+Выполнение terraform
+
+![image](https://github.com/user-attachments/assets/2de4b4ff-e00f-42ff-9305-4203b9938fc9)
+
+Далее мы запустим установку кластера:
+
 ~~~
+ansible-playbook -i /kuberspray/inventory/mycluster/hosts.yaml -u ubuntu --become --become-user=root --private-key=~/.ssh/id_ed25519 -e 'ansible_ssh_common_args="-o StrictHostKeyChecking=no"' cluster.yml --flush-cache
+~~~
+
+![image](https://github.com/user-attachments/assets/3d412ef7-cbaf-4231-906a-d05c978db822)
+
+Спустя время кластер будет готов, на данный момент для управления кластером мы заходим на master по ssh
+Дальше мы создаем конфиг файл кластера Kubernetes.
+
+![image](https://github.com/user-attachments/assets/d00bc805-6636-40fc-9180-2541bf1150fe)
+
+Назначаем права проверяем и убеждаемся в том что всё работает
+
+![image](https://github.com/user-attachments/assets/c24e8c98-6996-41b4-bebd-0d4ff24c6c9b)
+
+![image](https://github.com/user-attachments/assets/0f9dc056-5fd2-42d2-84c5-c34e4f857d43)
+
+Перед тем как выйти скопируем конфиг на локальную машину чтобы управлять кластером оттуда:
+cat ~/.kube/config
+Далее выходим exit и создаем файл конфига на локальной машине
+
+---
+
+## Создание тестового приложения
+
+Создаем новый репозиторий на github и копируем его себе на локлаьную машину:
+![image](https://github.com/user-attachments/assets/6c529d44-9e6f-487d-8e89-ec040773e70e)
+
+Выполняем вход на docker hub
+![image](https://github.com/user-attachments/assets/d83fffe4-653e-4ca2-9978-ba0496702164)
+
+Создадим статичную страницу для нашего тестового приложения:
+
+~~~html
+<html>
+    <head>
+        <title>Test_diplom</title>
+        <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+        <meta name="title" content="Тест для дипломной работы">
+        <meta name="author" content="Stogov Anton">
+        <meta name="description" content="capture">
+    </head>
+    <body>
+        <h1>Diplow-work</h1>
+        <img src="diplom_image.jpg"/>
+    </body>
+</html>
+~~~
+
+Докер файл с nginx для отображения нашей статичной страницы
+
+~~~docker
+FROM nginx:1.27.0
+RUN rm -rf /usr/share/nginx/html/*
+COPY content/ /usr/share/nginx/html/
+EXPOSE 80
+~~~
+
+Создам образ и запушу его в docker hub
+![image](https://github.com/user-attachments/assets/550715c0-e609-4921-9c79-e97b8dbe7d4d)
+
+![image](https://github.com/user-attachments/assets/95b00f2c-80e6-4995-86d8-29c8f5b6eeab)
+
+Проверяю образ на docker hub
+
+![image](https://github.com/user-attachments/assets/69bf8c29-e10d-48dd-8d0e-bcbaf5e96860)
+
+---
+
+
+
+
+
 
 
 
