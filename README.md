@@ -120,7 +120,7 @@ ____
 
 Для выполения этой задачи буду использовать yc client и terraform
 
-![image](https://github.com/user-attachments/assets/8a20e1f8-ddbb-4dc5-8d4a-85cbd5da6512)
+![image](https://github.com/user-attachments/assets/f5f2eb1e-6429-4a0f-805c-4f5e32933e0b)
 
 Создаю сервисный аккаунт и даю ему права editor для внесения изменений 
 
@@ -164,14 +164,17 @@ provisioner "local-exec" {
 }
 }
 ~~~
+![image](https://github.com/user-attachments/assets/6dcdb005-042d-4571-8d5c-91688acb05ba)![image](https://github.com/user-attachments/assets/cbdf1fad-998e-4ef1-bc3d-5073924c9c97)
+
 Создан сервисный аккаунт с ролью editor
-![image](https://github.com/user-attachments/assets/99506fb2-a64e-4345-809f-167f54ac145d)
+![image](https://github.com/user-attachments/assets/430e704a-1272-4fc9-880d-1e7706167936)
 
 Создан backet 
-![image](https://github.com/user-attachments/assets/51721be9-fabd-4cdb-be17-d386c941322b)
+![image](https://github.com/user-attachments/assets/734ff1ce-184b-4648-aae2-2f751911f975)
 
 Ключ записан в файл backet.tfvars
-![image](https://github.com/user-attachments/assets/bd53c4e8-9a2d-4e3a-93bd-0abd91841c1b)
+![image](https://github.com/user-attachments/assets/852b3657-a16f-4597-b811-e3fe14f4752e)
+
 
 ---
 
@@ -198,7 +201,7 @@ terraform {
 ~~~
 
 Файл terraform.tfstate подгрузился в ранее созданный backet
-![image](https://github.com/user-attachments/assets/cbdf1fad-998e-4ef1-bc3d-5073924c9c97)
+![image](https://github.com/user-attachments/assets/640170fc-b587-4143-b30d-15f7c0411a6d)
 
 ---
 
@@ -223,7 +226,8 @@ resource "yandex_vpc_subnet" "diplom-subnet2" {
 }
 ~~~
 
-![image](https://github.com/user-attachments/assets/bbf9aedb-fdd4-4ebd-9be5-89f19d0595af)
+![image](https://github.com/user-attachments/assets/25a1fa18-23a1-4296-90aa-4a0e6529c4cf)
+
 
 
 Команды terraform destroy и terraform apply исполняются без дополнительных ручных действий
@@ -238,3 +242,210 @@ Terraform сконфигурирован и создана инфраструк�
 --- 
 
 ## Создание Kubernetes кластера
+
+Так же буду использовать kubernates и helm
+
+![image](https://github.com/user-attachments/assets/fa4a16fc-7eb7-46bb-8379-24da9e40cfcc)
+
+Приступлю к развёртыванию Kubernetes кластера, разворачивать буду из репозитория Kubespray, склонирую репозиторий на свою рабочую машину с github:
+
+
+При помощи terraform буду применять следующий код:
+~~~hcl
+resource "local_file" "hosts_cfg_kubespray" {
+  count = var.exclude_ansible ? 0 : 1 # Если exclude_ansible true, ресурс не создается
+
+  content  = templatefile("${path.module}/hosts.tftpl", {
+    workers = yandex_compute_instance.worker
+    masters = yandex_compute_instance.master
+  })
+  filename = "../kubespray/inventory/mycluster/hosts.yaml"
+}
+~~~
+Он создаст hosts.yaml по шаблону
+
+~~~
+all:
+  hosts:%{ for idx, master in masters }
+    master:
+      ansible_host: ${master.network_interface[0].nat_ip_address}
+      ip: ${master.network_interface[0].ip_address}
+      access_ip: ${master.network_interface[0].nat_ip_address}%{ endfor }%{ for idx, worker in workers }
+    worker-${idx + 1}:
+      ansible_host: ${worker.network_interface[0].nat_ip_address}
+      ip: ${worker.network_interface[0].ip_address}
+      access_ip: ${worker.network_interface[0].nat_ip_address}%{ endfor }
+  children:
+    kube_control_plane:
+      hosts:%{ for idx, master in masters }
+        ${master.name}:%{ endfor }
+    kube_node:
+      hosts:%{ for idx, worker in workers }
+        ${worker.name}:%{ endfor }
+    etcd:
+      hosts:%{ for idx, master in masters }
+        ${master.name}:%{ endfor }
+    k8s_cluster:
+      children:
+        kube_control_plane:
+        kube_node:
+    calico_rr:
+      hosts: {}
+~~~
+
+При выполнение terraform, hosts.yaml будет выглядеть так в зависимости от ip адресов
+
+~~~yaml
+all:
+  hosts:
+    master:
+      ansible_host: 51.250.14.85
+      ip: 10.0.1.15
+      access_ip: 51.250.14.85
+    worker-1:
+      ansible_host: 158.160.80.6
+      ip: 10.0.2.28
+      access_ip: 158.160.80.6
+    worker-2:
+      ansible_host: 158.160.88.139
+      ip: 10.0.2.18
+      access_ip: 158.160.88.139
+  children:
+    kube_control_plane:
+      hosts:
+        master:
+    kube_node:
+      hosts:
+        worker-1:
+        worker-2:
+    etcd:
+      hosts:
+        master:
+    k8s_cluster:
+      children:
+        kube_control_plane:
+        kube_node:
+    calico_rr:
+~~~
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
