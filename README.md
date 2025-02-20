@@ -299,9 +299,6 @@ all:
 
 ![image](https://github.com/user-attachments/assets/6c7baf65-4e24-40f0-bc7d-ee9884cc2283)
 
-Выполнение terraform
-
-![image](https://github.com/user-attachments/assets/2de4b4ff-e00f-42ff-9305-4203b9938fc9)
 
 Далее мы запустим установку кластера:
 
@@ -486,7 +483,247 @@ spec:
 Проверяю работу по 30051 порту
 ![image](https://github.com/user-attachments/assets/bf6bc41e-f001-487f-9e85-4721420708f5)
 
-В манифесте Deployments две реплики приложения и для обеспечения его отказоустойчивости, потребуется балансировщик нагрузки. Дописал Terraform для создания балансировщика нагрузки. Создается группа балансировщика нагрузки, которая будет использоваться для балансировки нагрузки между экземплярами. Создается балансировщик с именем grafana с портом 3000,  настраивается проверка работоспособности (healthcheck) на порту 31000. Также создается балансировщик с именем web-app на порту 80, который перенаправляет трафик на порт 31001 целевого узла, настраивается проверка работоспособности (healthcheck) на порту 31001.
+В манифесте Deployments две реплики приложения и для обеспечения его отказоустойчивости, потребуется балансировщик нагрузки. Дописал Terraform для создания балансировщика нагрузки. Создается группа балансировщика нагрузки, которая будет использоваться для балансировки нагрузки между экземплярами. Создается балансировщик с именем grafana с портом 3000. Также создается балансировщик с именем web-app на порту 80. 
+
+При выполнении кода terraform:
+![image](https://github.com/user-attachments/assets/2de4b4ff-e00f-42ff-9305-4203b9938fc9)
+
+в веб интерфейсе ya cloud
+![image](https://github.com/user-attachments/assets/aed5dd47-65e0-4532-a294-dfd1fa192398)
+
+
+Проверяю работу в браузере тестовое приложение с портом 80:
+![image](https://github.com/user-attachments/assets/3300add6-8caa-4da0-9305-d65d3955897e)
+
+Графана с портом 3000 
+![image](https://github.com/user-attachments/assets/8034a25f-d233-4aa4-b384-1b8e50c73729)
+
+Авторизация так же работает
+![image](https://github.com/user-attachments/assets/6215023e-a918-4f49-a577-5b4ba19377f0)
+
+
+## Итоги системы мониторинга и деплоя приложения:
+
+1. Git репозиторий с конфигурационными файлами для настройки Kubernetes.
+   https://github.com/AntonStogov/diplow-work/tree/main/app-k8s
+2. Http доступ к web интерфейсу grafana.
+   http://130.193.45.247:3000
+3. Дашборды в grafana отображающие состояние Kubernetes кластера.
+   http://130.193.45.247:3000/d/efa86fd1d0c121a26444b636a3f509a8/kubernetes-compute-resources-cluster?orgId=1&from=now-1h&to=now&timezone=utc&var-datasource=default&var-cluster=&refresh=10s
+4. Http доступ к тестовому приложению.
+   http://84.201.168.61
+
+---
+
+## Установка и настройка CI/CD
+
+Буду использовать gitlab для дальнейшей работы
+
+![image](https://github.com/user-attachments/assets/e3ca3c74-d1b3-41e8-a0e9-08a60784bc3e)
+
+Тестовое приложение отправлю в репозиторий гитлаба
+![image](https://github.com/user-attachments/assets/c25b9fde-f977-4d90-bb74-e4ea1df54fae)
+
+Для работы CI/CD процесса понадобится создать gitlab runner и добавить переменные для работы pipelines 
+Я создаю раннера
+И подготавливаю кластер к установке gitlab runner, создаю отдельный namespace
+kubectl create ns gitlab-runner
+
+При создании runner на gitlab был предоставлен токен сохраню его в секрет командой:
+kubectl --namespace=gitlab-runner create secret generic runner-secret --from-literal=runner-registration-token="<token>" --from-literal=runner-token=""
+
+Готовлю файл values.yaml 
+
+~~~yaml
+imagePullPolicy: IfNotPresent
+revisionHistoryLimit: 3
+gitlabUrl: https://gitlab.com
+terminationGracePeriodSeconds: 3600
+concurrent: 3
+checkInterval: 5
+logLevel: debug
+logFormat: json
+sessionServer:
+  enabled: false
+rbac:
+  create: true
+  rules:
+  - resources: ["pods", "secrets", "configmaps"]
+    verbs: ["get", "list", "watch", "create", "patch", "delete", "update"]
+  - apiGroups: [""]
+    resources: ["pods/exec", "pods/attach"]
+    verbs: ["create", "patch", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"] 
+
+  clusterWideAccess: false
+  podSecurityPolicy:
+    enabled: false
+    resourceNames:
+    - gitlab-runner
+metrics:
+  enabled: true
+  portName: metrics
+  port: 9252
+  serviceMonitor:
+    enabled: false
+service:
+  enabled: false
+runners:
+  privileged: true
+  config: |
+    log_level = "debug"
+    [[runners]]
+      output_limit = 10000
+      [runners.kubernetes]
+        image = "ubuntu:22.04"
+        # helper_image = "if use custom helper"
+ 
+  executor: kubernetes
+  secret: runner-secret
+PodSecurityContext:
+  runAsUser: 100
+  # runAsGroup: 65533
+  fsGroup: 65533
+  # supplementalGroups: [65533]
+resources:
+  limits:
+    memory: 2048Mi
+    cpu: 2
+  requests:
+    memory: 1024Mi
+    cpu: 1
+~~~
+Добавляю репозиторий и устанавливаю раннер
+helm repo add gitlab https://charts.gitlab.io
+helm install gitlab-runner gitlab/gitlab-runner -n gitlab-runner -f helm-runner/values.yaml
+![image](https://github.com/user-attachments/assets/f42564ac-d65d-4cb9-8021-71f5791e64d7)
+
+Проверяю работу:
+![image](https://github.com/user-attachments/assets/6021acd1-48d3-4ce7-be2d-5497bf6f5180)
+
+![image](https://github.com/user-attachments/assets/883e906e-8c66-429a-a47d-b55269682e19)
+
+После этого проверил в веб интефейсе работу раннера:
+![image](https://github.com/user-attachments/assets/b50a3265-bb3e-43ed-a1b0-d85e81361306)
+
+Далее приступаем к pipelines для него необходимо создать variables (Setings -> CI\CD -> Variables)
+Мне нужны были переменные:
+DOCKER_USER ----> логин от докер хаба
+DOCKER_PASSWORDS ----> токен для работы создается в самом докер хабе (Account setings -> Personal access tokens)
+DOCKER_REGISTRY ----> https://index.docker.io/v1/
+IMAGE_NAME ----> test-diplom
+KUBE_CONFIG ----> конфигурационный файл Kubernetes в формате base64
+
+.gitlab-cd.yml
+~~~yml
+stages:
+  - build
+  - deploy
+
+variables:
+  IMAGE_TAG_LATEST: latest
+  IMAGE_TAG_COMMIT: ${CI_COMMIT_SHORT_SHA}
+  VERSION: ${CI_COMMIT_TAG}
+  NAMESPACE: "diplom-site"
+  DEPLOYMENT_NAME: "diplom-app"
+
+build:
+  stage: build
+  image: gcr.io/kaniko-project/executor:v1.22.0-debug
+  tags:
+    - diplom
+  only:
+    - main
+    - tags
+  script:
+    - echo "Building Docker image..."
+    - mkdir -p /kaniko/.docker
+    - echo "{\"auths\":{\"${DOCKER_REGISTRY}\":{\"username\":\"${DOCKER_USER}\",\"password\":\"${DOCKER_PASSWORD}\"}}}" > /kaniko/.docker/config.json
+    - if [ -z "$VERSION" ]; then VERSION=$IMAGE_TAG_COMMIT; fi
+    - /kaniko/executor --context ${CI_PROJECT_DIR} --dockerfile ${CI_PROJECT_DIR}/Dockerfile --destination ${DOCKER_USER}/${IMAGE_NAME}:$VERSION
+    - /kaniko/executor --context ${CI_PROJECT_DIR} --dockerfile ${CI_PROJECT_DIR}/Dockerfile --destination ${DOCKER_USER}/${IMAGE_NAME}:${IMAGE_TAG_LATEST}
+
+deploy:
+  stage: deploy
+  image: bitnami/kubectl:latest
+  tags:
+    - diplom
+  only:
+    - main
+    - tags
+  script:
+    - echo "Deploying to Kubernetes..."
+    - echo $KUBE_CONFIG | base64 -d > kubeconfig
+    - export KUBECONFIG=kubeconfig
+    - kubectl apply -f app-k8s/
+    - if [ -z "$VERSION" ]; then VERSION=$IMAGE_TAG_COMMIT; fi
+    - kubectl set image deployment/${DEPLOYMENT_NAME} ${IMAGE_NAME}=${DOCKER_USER}/${IMAGE_NAME}:$VERSION --namespace=${NAMESPACE}
+    - kubectl rollout restart deployment/${DEPLOYMENT_NAME} --namespace=${NAMESPACE}
+    - kubectl rollout status deployment/${DEPLOYMENT_NAME} --namespace=${NAMESPACE}
+  when: on_success
+~~~
+
+Выполняю пуш с тегом 
+![image](https://github.com/user-attachments/assets/c0d230a6-d09e-473a-8d9a-c4c9f029aa8f)
+
+![image](https://github.com/user-attachments/assets/a3601743-24be-4475-b1f2-a53325e67ac7)
+
+
+Проверяю работу pipeline
+![image](https://github.com/user-attachments/assets/0e3f1cec-8112-470c-9533-e12cce5c2f88)
+
+![image](https://github.com/user-attachments/assets/f4cb61c6-17f0-462b-b4e3-988cf8f4376f)
+
+
+## Итоги по установке и настройке CI/CD
+
+1. Интерфейс ci/cd сервиса доступен по http.
+   Работу выполнял в gitlab
+2. При любом коммите в репозиторие с тестовым приложением происходит сборка и отправка в регистр Docker образа.
+   Выполняется при любом коммите
+3. При создании тега (например, v1.0.0) происходит сборка и отправка с соответствующим label в регистри, а также деплой соответствующего Docker образа в кластер Kubernetes.
+   При указании тэга происходит деплой соответствуеющего Docker образа
+
+---
+
+
+# Итоги по дипломной работе:
+1. Репозиторий с конфигурационными файлами Terraform и готовность продемонстрировать создание всех ресурсов с нуля.
+   Репозиторий с конфиг файлами Terraform доступен по ссылке, готов продемонстрировать создание всех ресурсов с нуля
+   https://github.com/AntonStogov/diplow-work/tree/main/terraform
+   
+2. Пример pull request с комментариями созданными atlantis'ом или снимки экрана из Terraform Cloud или вашего CI-CD-terraform pipeline.
+   ![image](https://github.com/user-attachments/assets/09b7e531-4839-46ee-b76b-621265d35d46)
+   https://github.com/AntonStogov/diplow-work/actions/runs/13434715017
+   
+3. Репозиторий с конфигурацией ansible, если был выбран способ создания Kubernetes кластера при помощи ansible.
+   Я выбрал Kuberspray
+   
+4. Репозиторий с Dockerfile тестового приложения и ссылка на собранный docker image.
+   Ссылка на репозиторий:
+   https://gitlab.com/antonstogov/test-diplom
+   Ссылка на собранные docker image
+   https://hub.docker.com/repository/docker/fortdragon/test-diplom/tags
+   
+5. Репозиторий с конфигурацией Kubernetes кластера.
+   Был использован Kuberspray
+   
+6. Ссылка на тестовое приложение и веб интерфейс Grafana с данными доступа.
+   http://84.201.168.61/
+   Grafana
+   http://130.193.45.247:3000
+   login: admin
+   password: Admin2580
+   
+7. Все репозитории рекомендуется хранить на одном ресурсе (github, gitlab)
+   https://github.com/AntonStogov/diplow-work
+
+
+
+
+
 
 
 
