@@ -59,6 +59,7 @@ jobs:
         -var="token=${{ secrets.YC_TOKEN }}" \
         -var="cloud_id=${{ secrets.YC_CLOUD_ID }}" \
         -var="folder_id=${{ secrets.YC_FOLDER_ID }}" \
+        -var="zone_id=${{ secrets.YC_ZONE_ID }}" \
         -var="exclude_ansible=${{ env.TF_VAR_exclude_ansible }}"
 
     - name: Terraform Apply (Automatic Trigger)
